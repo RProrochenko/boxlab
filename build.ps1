@@ -41,16 +41,14 @@ try {
     $boxFile = ".\builds\$box.box"
     $packer = if (Test-Path .\packer.exe) { Join-Path $PSScriptRoot 'packer.exe' } else { 'packer' }
     $source = "*.$($machineConfig.os)"
-    $machineConfigPath = "config/machines/$($machine.File.Name)"
-    $packerVariable = "$($machineConfig.os)_machine_config_path=$machineConfigPath"
 
     & $packer init $PSScriptRoot
     if ($LASTEXITCODE -ne 0) { throw 'Packer init failed' }
 
-    & $packer validate "-only=$source" "-var=$packerVariable" $PSScriptRoot
+    & $packer validate "-only=$source" $PSScriptRoot
     if ($LASTEXITCODE -ne 0) { throw 'Packer validate failed' }
 
-    & $packer build -force "-only=$source" "-var=$packerVariable" $PSScriptRoot
+    & $packer build -force "-only=$source" $PSScriptRoot
     if ($LASTEXITCODE -ne 0) { throw 'Packer build failed' }
     if (-not (Test-Path -LiteralPath $boxFile -PathType Leaf)) { throw "Box not found: $boxFile" }
 

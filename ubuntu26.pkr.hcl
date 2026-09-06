@@ -1,8 +1,3 @@
-variable "ubuntu26_machine_config_path" {
-  type    = string
-  default = "config/machines/default.json"
-}
-
 variable "ubuntu26_build_cpus" {
   type    = number
   default = null
@@ -29,39 +24,53 @@ variable "ubuntu26_headless" {
 }
 
 locals {
-  ubuntu26_machine_config   = jsondecode(file("${path.root}/${var.ubuntu26_machine_config_path}"))
-  ubuntu26_os_config        = jsondecode(file("${path.root}/config/os/ubuntu26.json"))
-  ubuntu26_build_config     = local.ubuntu26_machine_config.build
-  ubuntu26_os_build_config  = local.ubuntu26_os_config.build
-  ubuntu26_box_config       = local.ubuntu26_machine_config.box
-  ubuntu26_provision_config = local.ubuntu26_machine_config.provision
-  ubuntu26_ssh_config       = local.ubuntu26_machine_config.ssh
-  ubuntu26_packages         = try(local.ubuntu26_provision_config.packages, [])
-  ubuntu26_install_docker   = try(local.ubuntu26_provision_config.install_docker, false)
-  ubuntu26_build_cpus       = coalesce(var.ubuntu26_build_cpus, local.ubuntu26_build_config.resources.cpus)
-  ubuntu26_build_memory     = coalesce(var.ubuntu26_build_memory, local.ubuntu26_build_config.resources.memory)
-  ubuntu26_box_output_path  = coalesce(var.ubuntu26_box_output_path, "${path.root}/builds/${local.ubuntu26_box_config.name}.box")
-  ubuntu26_output_directory = coalesce(var.ubuntu26_build_output_directory, "${path.root}/${local.ubuntu26_build_config.output_directory}")
+  # --- Параметри VM (раніше config/machines/default.json) ---
+  ubuntu26_hostname             = "ubuntu-dev"
+  ubuntu26_ssh_username         = "user"
+  ubuntu26_ssh_private_key_path = "ssh/private-key"
+  ubuntu26_ssh_authorized_key   = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPGYBOCLwK5b+Kte0D1oIKAdW0b1/laUgS6pNnMczknx packer-vagrant"
+  ubuntu26_box_name             = "ubuntu-26.04-rpr-virtualbox"
+  ubuntu26_vm_name              = "ubuntu-26.04-rprorochenko-base"
+  ubuntu26_default_build_cpus   = 4
+  ubuntu26_default_build_memory = 8192
+  ubuntu26_default_output_dir   = "builds/packer-ubuntu"
+  ubuntu26_install_docker       = true
+  ubuntu26_packages             = ["tree", "unzip", "virtualbox-guest-utils", "zip"]
+
+  # --- Параметри ОС-шаблону (раніше config/os/ubuntu26.json) ---
+  ubuntu26_guest_os_type = "Ubuntu_64"
+  ubuntu26_iso_url       = "https://releases.ubuntu.com/26.04.1/ubuntu-26.04.1-live-server-amd64.iso"
+  ubuntu26_iso_checksum  = "sha256:cc8a95cde20f6ced61a322420de00f10cc3c90ced545daa46cb9c1a117f1d927"
+  ubuntu26_disk_size     = 30000
+
+  # --- Похідні значення ---
+  ubuntu26_build_cpus       = coalesce(var.ubuntu26_build_cpus, local.ubuntu26_default_build_cpus)
+  ubuntu26_build_memory     = coalesce(var.ubuntu26_build_memory, local.ubuntu26_default_build_memory)
+  ubuntu26_box_output_path  = coalesce(var.ubuntu26_box_output_path, "${path.root}/builds/${local.ubuntu26_box_name}.box")
+  ubuntu26_output_directory = coalesce(var.ubuntu26_build_output_directory, "${path.root}/${local.ubuntu26_default_output_dir}")
+
+  # --- cloud-init autoinstall: шаблон у http/ubuntu26/user-data.pkrtpl.hcl,
+  #     значення підставляються з локалів цього файлу ---
   ubuntu26_http_content = {
     "/meta-data" = ""
-    "/user-data" = templatefile("${path.root}/http/user-data.pkrtpl.hcl", {
-      hostname       = local.ubuntu26_machine_config.hostname
-      username       = local.ubuntu26_ssh_config.username
-      authorized_key = trimspace(file("${path.root}/${local.ubuntu26_ssh_config.public_key_path}"))
+    "/user-data" = templatefile("${path.root}/http/ubuntu26/user-data.pkrtpl.hcl", {
+      hostname       = local.ubuntu26_hostname
+      username       = local.ubuntu26_ssh_username
+      authorized_key = local.ubuntu26_ssh_authorized_key
     })
   }
 }
 
 source "virtualbox-iso" "ubuntu26" {
-  vm_name       = local.ubuntu26_build_config.vm_name
-  guest_os_type = local.ubuntu26_os_build_config.guest_os_type
+  vm_name       = local.ubuntu26_vm_name
+  guest_os_type = local.ubuntu26_guest_os_type
 
-  iso_url      = local.ubuntu26_os_build_config.iso_url
-  iso_checksum = local.ubuntu26_os_build_config.iso_checksum
+  iso_url      = local.ubuntu26_iso_url
+  iso_checksum = local.ubuntu26_iso_checksum
 
   cpus      = local.ubuntu26_build_cpus
   memory    = local.ubuntu26_build_memory
-  disk_size = local.ubuntu26_os_build_config.disk_size
+  disk_size = local.ubuntu26_disk_size
 
   output_directory = local.ubuntu26_output_directory
 
@@ -70,8 +79,8 @@ source "virtualbox-iso" "ubuntu26" {
 
   http_content = local.ubuntu26_http_content
 
-  ssh_username         = local.ubuntu26_ssh_config.username
-  ssh_private_key_file = "${path.root}/${local.ubuntu26_ssh_config.private_key_path}"
+  ssh_username         = local.ubuntu26_ssh_username
+  ssh_private_key_file = "${path.root}/${local.ubuntu26_ssh_private_key_path}"
   ssh_timeout          = "30m"
 
   boot_wait = "5s"
@@ -97,7 +106,7 @@ build {
         "curl -fsSL https://get.docker.com -o /tmp/get-docker.sh",
         "sudo sh /tmp/get-docker.sh",
         "rm -f /tmp/get-docker.sh",
-        "sudo usermod -aG docker ${local.ubuntu26_ssh_config.username}"
+        "sudo usermod -aG docker ${local.ubuntu26_ssh_username}"
       ] : [],
       length(local.ubuntu26_packages) > 0 ? ["sudo apt-get install -y ${join(" ", local.ubuntu26_packages)}"] : [],
       ["sudo apt-get clean"]

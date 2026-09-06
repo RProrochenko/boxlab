@@ -1,8 +1,3 @@
-variable "rocky10_machine_config_path" {
-  type    = string
-  default = "config/machines/rocky.json"
-}
-
 variable "rocky10_build_cpus" {
   type    = number
   default = null
@@ -25,42 +20,56 @@ variable "rocky10_build_output_directory" {
 
 variable "rocky10_headless" {
   type    = bool
-  default = true
+  default = false
 }
 
 locals {
-  rocky10_machine_config   = jsondecode(file("${path.root}/${var.rocky10_machine_config_path}"))
-  rocky10_os_config        = jsondecode(file("${path.root}/config/os/rocky10.json"))
-  rocky10_build_config     = local.rocky10_machine_config.build
-  rocky10_os_build_config  = local.rocky10_os_config.build
-  rocky10_box_config       = local.rocky10_machine_config.box
-  rocky10_provision_config = local.rocky10_machine_config.provision
-  rocky10_ssh_config       = local.rocky10_machine_config.ssh
-  rocky10_packages         = try(local.rocky10_provision_config.packages, [])
-  rocky10_install_docker   = try(local.rocky10_provision_config.install_docker, false)
-  rocky10_build_cpus       = coalesce(var.rocky10_build_cpus, local.rocky10_build_config.resources.cpus)
-  rocky10_build_memory     = coalesce(var.rocky10_build_memory, local.rocky10_build_config.resources.memory)
-  rocky10_box_output_path  = coalesce(var.rocky10_box_output_path, "${path.root}/builds/${local.rocky10_box_config.name}.box")
-  rocky10_output_directory = coalesce(var.rocky10_build_output_directory, "${path.root}/${local.rocky10_build_config.output_directory}")
+  # --- Параметри VM (раніше config/machines/rocky.json) ---
+  rocky10_hostname             = "rocky-dev"
+  rocky10_ssh_username         = "user"
+  rocky10_ssh_private_key_path = "ssh/private-key"
+  rocky10_ssh_authorized_key   = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPGYBOCLwK5b+Kte0D1oIKAdW0b1/laUgS6pNnMczknx packer-vagrant"
+  rocky10_box_name             = "rocky-10-rpr-virtualbox"
+  rocky10_vm_name              = "rocky-10-rprorochenko-base"
+  rocky10_default_build_cpus   = 4
+  rocky10_default_build_memory = 8192
+  rocky10_default_output_dir   = "builds/packer-rocky"
+  rocky10_install_docker       = true
+  rocky10_packages             = ["tree", "unzip", "zip"]
+
+  # --- Параметри ОС-шаблону (раніше config/os/rocky10.json) ---
+  rocky10_guest_os_type = "RedHat_64"
+  rocky10_iso_url       = "https://download.rockylinux.org/pub/rocky/10/isos/x86_64/Rocky-10.2-x86_64-minimal.iso"
+  rocky10_iso_checksum  = "file:https://download.rockylinux.org/pub/rocky/10/isos/x86_64/Rocky-10.2-x86_64-minimal.iso.CHECKSUM"
+  rocky10_disk_size     = 30000
+
+  # --- Похідні значення ---
+  rocky10_build_cpus       = coalesce(var.rocky10_build_cpus, local.rocky10_default_build_cpus)
+  rocky10_build_memory     = coalesce(var.rocky10_build_memory, local.rocky10_default_build_memory)
+  rocky10_box_output_path  = coalesce(var.rocky10_box_output_path, "${path.root}/builds/${local.rocky10_box_name}.box")
+  rocky10_output_directory = coalesce(var.rocky10_build_output_directory, "${path.root}/${local.rocky10_default_output_dir}")
+
+  # --- Kickstart: шаблон у http/rocky10/rocky.ks.pkrtpl.hcl,
+  #     значення підставляються з локалів цього файлу ---
   rocky10_http_content = {
-    "/rocky.ks" = templatefile("${path.root}/http/rocky/rocky.ks.pkrtpl.hcl", {
-      hostname       = local.rocky10_machine_config.hostname
-      username       = local.rocky10_ssh_config.username
-      authorized_key = trimspace(file("${path.root}/${local.rocky10_ssh_config.public_key_path}"))
+    "/rocky.ks" = templatefile("${path.root}/http/rocky10/rocky.ks.pkrtpl.hcl", {
+      hostname       = local.rocky10_hostname
+      username       = local.rocky10_ssh_username
+      authorized_key = local.rocky10_ssh_authorized_key
     })
   }
 }
 
 source "virtualbox-iso" "rocky10" {
-  vm_name       = local.rocky10_build_config.vm_name
-  guest_os_type = local.rocky10_os_build_config.guest_os_type
+  vm_name       = local.rocky10_vm_name
+  guest_os_type = local.rocky10_guest_os_type
 
-  iso_url      = local.rocky10_os_build_config.iso_url
-  iso_checksum = local.rocky10_os_build_config.iso_checksum
+  iso_url      = local.rocky10_iso_url
+  iso_checksum = local.rocky10_iso_checksum
 
   cpus      = local.rocky10_build_cpus
   memory    = local.rocky10_build_memory
-  disk_size = local.rocky10_os_build_config.disk_size
+  disk_size = local.rocky10_disk_size
 
   output_directory = local.rocky10_output_directory
   headless         = var.rocky10_headless
@@ -68,17 +77,16 @@ source "virtualbox-iso" "rocky10" {
   guest_additions_mode = "disable"
   http_content         = local.rocky10_http_content
 
-  ssh_username         = local.rocky10_ssh_config.username
-  ssh_private_key_file = "${path.root}/${local.rocky10_ssh_config.private_key_path}"
+  ssh_username         = local.rocky10_ssh_username
+  ssh_private_key_file = "${path.root}/${local.rocky10_ssh_private_key_path}"
   ssh_timeout          = "30m"
 
   boot_wait = "5s"
 
   boot_command = [
-    "<up>",
     "e",
     "<down><down><end><wait>",
-    " inst.k inst.ks=http://{{ .HTTPIP }}:{{ .HTTPPort }}/rocky.ks",
+    " inst.ks=http://{{ .HTTPIP }}:{{ .HTTPPort }}/rocky.ks inst.text",
     "<f10>"
   ]
   shutdown_command = "sudo shutdown -P now"
@@ -94,7 +102,7 @@ build {
         "curl -fsSL https://get.docker.com -o /tmp/get-docker.sh",
         "sudo sh /tmp/get-docker.sh",
         "rm -f /tmp/get-docker.sh",
-        "sudo usermod -aG docker ${local.rocky10_ssh_config.username}"
+        "sudo usermod -aG docker ${local.rocky10_ssh_username}"
       ] : [],
       length(local.rocky10_packages) > 0 ? ["sudo dnf -y install ${join(" ", local.rocky10_packages)}"] : [],
       ["sudo dnf clean all"]
