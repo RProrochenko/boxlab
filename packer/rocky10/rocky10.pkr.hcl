@@ -35,7 +35,7 @@ locals {
   cpus      = 4
   memory    = 8192
   disk_size = 30000
-  headless  = false                      # false — показувати вікно VirtualBox
+  headless  = true                      # false — показувати вікно VirtualBox
 
   # --- Автоінсталяція (файл лежить у http/<os>/) ---
   autoinstall_path = "/rocky.ks"
