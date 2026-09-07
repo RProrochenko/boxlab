@@ -11,30 +11,18 @@
 
 ## Ідея
 
-Два незалежні етапи:
+Два незалежні етапи, обидва поверх VirtualBox:
 
-| Етап | Інструмент | Вхід | Вихід |
+| Етап | Команда | Вхід | Вихід |
 | --- | --- | --- | --- |
-| 1. Збірка образу | Packer + VirtualBox | ISO ОС, `packer/<os>.pkr.hcl`, `http/<os>/*` | `builds/<box>.box` |
-| 2. Запуск машини | Vagrant + VirtualBox | `builds/<box>.box`, `config/machines/<name>.json` | працююча ВМ |
+| 1. Збірка образу | `.\build.ps1` (Packer) | ISO ОС, `packer/<os>.pkr.hcl`, `http/<os>/*` | бокс в індексі Vagrant, файл у `builds/` |
+| 2. Запуск машини | `vagrant up <name>` | бокс з індексу, `config/machines/<name>.json` | працююча ВМ |
+
+Етап 1 ставить ОС з нуля через kickstart або cloud-init, доустановлює пакети і Docker, пакує результат у бокс і реєструє його. Етап 2 створює з готового боксу скільки завгодно ізольованих машин.
 
 Спільного коду між етапами немає. Зв'язок тримається на трьох іменах: назві боксу, шляху до SSH-ключа і назві ОС-шаблону. Образ можна перезбирати, не чіпаючи опис машин, і навпаки.
 
 Один файл на ОС і один файл на машину. `Vagrantfile` і `build.ps1` не містять назв машин — вони читають свої теки динамічно, тому нова ОС не потребує правок коду.
-
-```
-ISO (rockylinux.org / releases.ubuntu.com)
-        |
-        |  build.ps1  --  packer build: unattended install через kickstart / cloud-init (http/)
-        |            --  shell provisioner: update, Docker, пакети
-        |            --  vagrant box add: реєстрація в індексі боксів
-        v
-builds/<box>.box
-        |
-        |  vagrant up <name>            -->  ВМ за config/machines/<name>.json
-        |  vagrant up <name>-<суфікс>   -->  ще одна ізольована ВМ з того ж профілю
-        v
-```
 
 ## Вимоги
 
