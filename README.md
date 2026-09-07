@@ -32,7 +32,7 @@
 
 - [VirtualBox](https://www.virtualbox.org/wiki/Downloads)
 - [Vagrant](https://developer.hashicorp.com/vagrant/downloads)
-- [Packer](https://developer.hashicorp.com/packer/install) `1.16.0` (у корені лежить `packer.exe` для Windows, git-ignored — за наявності `build.ps1` використовує саме його; інакше береться `packer` з `PATH`)
+- [Packer](https://developer.hashicorp.com/packer/install) `1.16.0`
 - PowerShell (для `build.ps1`)
 - Git
 
