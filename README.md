@@ -11,8 +11,8 @@
 ## Вимоги
 
 - [VirtualBox](https://www.virtualbox.org/wiki/Downloads)
-- [Vagrant](https://developer.hashicorp.com/vagrant/downloads) 2.x, перевірено на 2.4.9
-- [Packer](https://developer.hashicorp.com/packer/install) рівно 1.16.0 — версія зафіксована в `packer/plugins.pkr.hcl`
+- [Vagrant](https://developer.hashicorp.com/vagrant/downloads)
+- [Packer](https://developer.hashicorp.com/packer/install)
 
 
 ## Швидкий старт
