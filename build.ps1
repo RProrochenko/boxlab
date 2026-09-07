@@ -1,14 +1,16 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 Push-Location -LiteralPath $PSScriptRoot
 
 try {
+    $packerDir = Join-Path $PSScriptRoot 'packer'
+
     $machineFiles = @(Get-ChildItem -LiteralPath 'config/machines' -File -Filter '*.json' | Sort-Object Name)
     if ($machineFiles.Count -eq 0) { throw 'Файли config/machines/*.json не знайдено.' }
 
     $machines = foreach ($file in $machineFiles) {
         $config = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
-        if (-not $config.os -or -not $config.name -or -not $config.box -or -not $config.build) {
-            throw "$($file.Name) має містити os, name, box і build."
+        if (-not $config.os -or -not $config.name -or -not $config.box) {
+            throw "$($file.Name) має містити os, name і box."
         }
         [pscustomobject]@{ File = $file; Config = $config }
     }
@@ -29,7 +31,7 @@ try {
 
     $machine = $machines[$choice - 1]
     $machineConfig = $machine.Config
-    $templatePath = "$($machineConfig.os).pkr.hcl"
+    $templatePath = Join-Path $packerDir "$($machineConfig.os).pkr.hcl"
     if (-not (Test-Path -LiteralPath $templatePath -PathType Leaf)) {
         throw "Для OS-шаблону $($machineConfig.os) не знайдено $templatePath."
     }
@@ -39,16 +41,17 @@ try {
     }
 
     $boxFile = ".\builds\$box.box"
-    $packer = if (Test-Path .\packer.exe) { Join-Path $PSScriptRoot 'packer.exe' } else { 'packer' }
+    $packerExe = Join-Path $PSScriptRoot 'packer.exe'
+    $packer = if (Test-Path $packerExe) { $packerExe } else { 'packer' }
     $source = "*.$($machineConfig.os)"
 
-    & $packer init $PSScriptRoot
+    & $packer init $packerDir
     if ($LASTEXITCODE -ne 0) { throw 'Packer init failed' }
 
-    & $packer validate "-only=$source" $PSScriptRoot
+    & $packer validate "-only=$source" $packerDir
     if ($LASTEXITCODE -ne 0) { throw 'Packer validate failed' }
 
-    & $packer build -force "-only=$source" $PSScriptRoot
+    & $packer build -force "-only=$source" $packerDir
     if ($LASTEXITCODE -ne 0) { throw 'Packer build failed' }
     if (-not (Test-Path -LiteralPath $boxFile -PathType Leaf)) { throw "Box not found: $boxFile" }
 

@@ -1,7 +1,9 @@
 {
   "os": "rocky10",
-  "name": "rocky",
+  "name": "rocky10",
   "hostname": "rocky-dev",
+  "guest": "linux",
+  "communicator": "ssh",
   "autostart": false,
   "primary": false,
   "synced_folder": false,
@@ -17,21 +19,5 @@
       "cpus": 2,
       "memory": 4096
     }
-  },
-  "build": {
-    "vm_name": "rocky-10-rprorochenko-base",
-    "resources": {
-      "cpus": 2,
-      "memory": 4096
-    },
-    "output_directory": "builds/packer-rocky"
-  },
-  "provision": {
-    "install_docker": true,
-    "packages": [
-      "tree",
-      "unzip",
-      "zip"
-    ]
   }
 }

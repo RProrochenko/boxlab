@@ -8,6 +8,22 @@ rescue JSON::ParserError, SystemCallError => error
   abort "#{label}: #{error.message}"
 end
 
+# --- Динамічне налаштування розгортання: власна назва інстансу ---
+# Приклад:
+#   vagrant up ubuntu26-name_test
+#
+# Жодних змінних середовища задавати не треба: Vagrantfile сам шукає серед
+# аргументів поточної команди (ARGV) токен виду "<базова-назва>-<суфікс>"
+# і на льоту реєструє окрему, повністю ізольовану машину з таким іменем на
+# базі профілю "<базова-назва>". Працює однаково для up/ssh/halt/destroy/status.
+def custom_suffixes_for(base_name)
+  pattern = /\A#{Regexp.escape(base_name)}-([a-zA-Z0-9][a-zA-Z0-9_-]*)\z/
+  ARGV.each_with_object([]) do |arg, found|
+    match = pattern.match(arg)
+    found << match[1] if match && !found.include?(match[1])
+  end
+end
+
 machine_paths = Dir.glob(File.join(__dir__, "config", "machines", "*.json")).sort
 abort "config/machines: no VM configuration files found" if machine_paths.empty?
 
@@ -17,86 +33,100 @@ hostnames = []
 machine_paths.each do |path|
   label = "config/machines/#{File.basename(path)}"
   settings = read_json(path, label)
-  unknown = settings.keys - %w[os name hostname cpus memory autostart primary synced_folder ssh box build provision]
+  unknown = settings.keys - %w[os name hostname guest communicator winrm cpus memory autostart primary synced_folder ssh box]
   abort "#{label}: unknown settings: #{unknown.join(', ')}" unless unknown.empty?
 
   os_name = settings["os"]
   unless os_name.is_a?(String) && os_name.match?(/\A[a-zA-Z0-9][a-zA-Z0-9_-]*\z/)
     abort "#{label}: os must be a valid OS-template name"
   end
-  os_label = "config/os/#{os_name}.json"
-  os_config = read_json(File.join(__dir__, "config", "os", "#{os_name}.json"), os_label)
-  unknown = os_config.keys - %w[profile build]
-  abort "#{os_label}: unknown settings: #{unknown.join(', ')}" unless unknown.empty?
 
-  name = settings["name"]
-  unless name.is_a?(String) && name.match?(/\A[a-zA-Z0-9][a-zA-Z0-9_-]*\z/)
+  base_name = settings["name"]
+  unless base_name.is_a?(String) && base_name.match?(/\A[a-zA-Z0-9][a-zA-Z0-9_-]*\z/)
     abort "#{label}: name must contain only letters, digits, hyphens and underscores"
   end
-  abort "Duplicate machine name: #{name}" if resolved.key?(name)
-
-  profile = os_config["profile"]
-  abort "#{os_label}: profile must be a non-empty mapping" unless profile.is_a?(Hash) && !profile.empty?
-  unknown = profile.keys - %w[guest communicator winrm resources]
-  abort "#{os_label}: unknown profile settings: #{unknown.join(', ')}" unless unknown.empty?
+  abort "Duplicate machine name: #{base_name}" if resolved.key?(base_name)
 
   box = settings["box"]
   abort "#{label}: box must be a non-empty mapping" unless box.is_a?(Hash) && !box.empty?
   unknown = box.keys - %w[name resources]
-  abort "#{name}: unknown box settings: #{unknown.join(', ')}" unless unknown.empty?
-  abort "#{name}: box must specify name" unless box["name"].is_a?(String) && !box["name"].strip.empty?
+  abort "#{base_name}: unknown box settings: #{unknown.join(', ')}" unless unknown.empty?
+  abort "#{base_name}: box must specify name" unless box["name"].is_a?(String) && !box["name"].strip.empty?
 
-  hostname = settings.fetch("hostname", name)
+  hostname = settings.fetch("hostname", base_name)
   unless hostname.is_a?(String) && hostname.match?(/\A[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\z/)
-    abort "#{name}: hostname must be 1-63 letters, digits or internal hyphens"
+    abort "#{base_name}: hostname must be 1-63 letters, digits or internal hyphens"
   end
   abort "Duplicate hostname: #{hostname}" if hostnames.include?(hostname.downcase)
   hostnames << hostname.downcase
 
   box_resources = box.fetch("resources", {})
-  profile_resources = profile.fetch("resources", {})
-  [box_resources, profile_resources].each do |resources|
-    unless resources.is_a?(Hash) && (resources.keys - %w[cpus memory]).empty?
-      abort "#{name}: resources may contain only cpus and memory"
-    end
+  unless box_resources.is_a?(Hash) && (box_resources.keys - %w[cpus memory]).empty?
+    abort "#{base_name}: resources may contain only cpus and memory"
   end
   options = { "cpus" => 2, "memory" => 2048, "autostart" => false,
               "primary" => false, "synced_folder" => true }
-            .merge(box_resources).merge(profile_resources).merge(settings.slice("cpus", "memory", "autostart", "primary", "synced_folder"))
+            .merge(box_resources).merge(settings.slice("cpus", "memory", "autostart", "primary", "synced_folder"))
   %w[cpus memory].each do |key|
-    abort "#{name}: #{key} must be a positive integer" unless options[key].is_a?(Integer) && options[key].positive?
+    abort "#{base_name}: #{key} must be a positive integer" unless options[key].is_a?(Integer) && options[key].positive?
   end
   %w[autostart primary synced_folder].each do |key|
-    abort "#{name}: #{key} must be true or false" unless [true, false].include?(options[key])
+    abort "#{base_name}: #{key} must be true or false" unless [true, false].include?(options[key])
   end
 
-  communicator = profile.fetch("communicator", "ssh")
-  abort "#{name}: communicator must be ssh or winrm" unless %w[ssh winrm].include?(communicator)
+  communicator = settings.fetch("communicator", "ssh")
+  abort "#{base_name}: communicator must be ssh or winrm" unless %w[ssh winrm].include?(communicator)
   ssh = settings.fetch("ssh", {})
   if communicator == "ssh"
-    abort "#{name}: ssh must be a non-empty mapping" unless ssh.is_a?(Hash) && !ssh.empty?
+    abort "#{base_name}: ssh must be a non-empty mapping" unless ssh.is_a?(Hash) && !ssh.empty?
     allowed = %w[username private_key_path public_key_path insert_key]
-    abort "#{name}: unsupported ssh settings" unless (ssh.keys - allowed).empty?
-    abort "#{name}: ssh.username must be a non-empty string" unless ssh["username"].is_a?(String) && !ssh["username"].strip.empty?
+    abort "#{base_name}: unsupported ssh settings" unless (ssh.keys - allowed).empty?
+    abort "#{base_name}: ssh.username must be a non-empty string" unless ssh["username"].is_a?(String) && !ssh["username"].strip.empty?
     %w[private_key_path public_key_path].each do |key|
-      abort "#{name}: ssh.#{key} must be a non-empty string" unless ssh[key].is_a?(String) && !ssh[key].strip.empty?
+      abort "#{base_name}: ssh.#{key} must be a non-empty string" unless ssh[key].is_a?(String) && !ssh[key].strip.empty?
     end
     if ssh.key?("insert_key") && ![true, false].include?(ssh["insert_key"])
-      abort "#{name}: ssh.insert_key must be true or false"
+      abort "#{base_name}: ssh.insert_key must be true or false"
     end
   elsif settings.key?("ssh")
-    abort "#{name}: ssh settings conflict with #{communicator} communicator"
+    abort "#{base_name}: ssh settings conflict with #{communicator} communicator"
   end
-  if profile.key?("winrm")
-    abort "#{name}: winrm must be a mapping" unless profile["winrm"].is_a?(Hash)
-    abort "#{name}: winrm settings conflict with #{communicator}" unless communicator == "winrm"
+  winrm = settings["winrm"]
+  if winrm
+    abort "#{base_name}: winrm must be a mapping" unless winrm.is_a?(Hash)
+    abort "#{base_name}: winrm settings conflict with #{communicator}" unless communicator == "winrm"
   end
-  if profile["guest"] == "windows" && hostname.length > 15
-    abort "#{name}: Windows hostname must be at most 15 characters"
+  guest = settings["guest"]
+  if guest == "windows" && hostname.length > 15
+    abort "#{base_name}: Windows hostname must be at most 15 characters"
   end
 
-  vagrant_profile = profile.merge("box" => box["name"], "ssh" => ssh)
-  resolved[name] = [vagrant_profile, options, hostname, communicator]
+  vagrant_profile = { "box" => box["name"], "ssh" => ssh }
+  vagrant_profile["guest"] = guest if guest
+  vagrant_profile["winrm"] = winrm if winrm
+  resolved[base_name] = [vagrant_profile, options, hostname, communicator]
+
+  # --- Кастомні інстанси "<base_name>-<суфікс>", якщо такий токен є серед ARGV ---
+  custom_suffixes_for(base_name).each do |suffix|
+    custom_name = "#{base_name}-#{suffix}"
+    abort "Duplicate machine name: #{custom_name}" if resolved.key?(custom_name)
+
+    # Hostname (на відміну від імені машини Vagrant) не може містити "_" за DNS-правилами,
+    # тому підкреслення в суфіксі при формуванні hostname замінюються на "-".
+    custom_hostname = "#{hostname}-#{suffix.tr('_', '-')}"
+    unless custom_hostname.match?(/\A[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\z/)
+      abort "#{custom_name}: hostname must be 1-63 letters, digits or internal hyphens"
+    end
+    abort "Duplicate hostname: #{custom_hostname}" if hostnames.include?(custom_hostname.downcase)
+    hostnames << custom_hostname.downcase
+    if guest == "windows" && custom_hostname.length > 15
+      abort "#{custom_name}: Windows hostname must be at most 15 characters"
+    end
+
+    # Кастомний інстанс ніколи не претендує на primary — primary лишається за базовою машиною.
+    custom_options = options.merge("primary" => false)
+    resolved[custom_name] = [vagrant_profile, custom_options, custom_hostname, communicator]
+  end
 end
 
 abort "Only one machine may be primary" if resolved.values.count { |_, options, _, _| options["primary"] } > 1
