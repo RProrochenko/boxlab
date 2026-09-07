@@ -38,7 +38,7 @@ Host ubuntu26-test1
 
 ## Вимкнути
 
-Для окремої машини — у `config/machines/<os>.json`:
+Для окремої машини — у `machines/<os>/machine.json`:
 
 ```json
 "ssh_config_export": false

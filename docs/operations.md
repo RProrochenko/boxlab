@@ -27,9 +27,9 @@ vagrant box remove <box.name>
 vagrant box prune
 ```
 
-**Після зміни `config/machines/*.json`** (hostname, cpus, memory, synced_folder, ssh_config_export) досить `vagrant reload <name>`.
+**Після зміни `machines/<os>/machine.json`** (hostname, cpus, memory, synced_folder, ssh_config_export) досить `vagrant reload <name>`.
 
-**Після зміни `packer/<os>/*` або `http/<os>/*`** потрібна повна перезбірка:
+**Після зміни `machines/<os>/<os>.pkr.hcl` або `machines/<os>/http/*`** потрібна повна перезбірка:
 
 ```powershell
 vagrant destroy -f <name>

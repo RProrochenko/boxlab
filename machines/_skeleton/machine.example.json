@@ -1,0 +1,23 @@
+{
+  "os": "TODO",
+  "name": "TODO",
+  "hostname": "TODO",
+  "guest": "linux",
+  "communicator": "ssh",
+  "autostart": false,
+  "primary": false,
+  "synced_folder": false,
+  "ssh": {
+    "username": "user",
+    "private_key_path": "ssh/private-key",
+    "public_key_path": "ssh/private-key.pub",
+    "insert_key": false
+  },
+  "box": {
+    "name": "TODO",
+    "resources": {
+      "cpus": 2,
+      "memory": 4096
+    }
+  }
+}

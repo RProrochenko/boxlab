@@ -14,7 +14,7 @@
 Два етапи:
 
 1. **Packer** з ISO-образу встановлює ОС без участі людини, ставить базові пакети та пакує результат у Vagrant box.
-2. **Vagrant** піднімає машини з цього box за описами в `config/machines/*.json` — без правок `Vagrantfile`.
+2. **Vagrant** піднімає машини з цього box за описами в `machines/<os>/machine.json` — без правок `Vagrantfile`.
 
 Готові стенди: **Ubuntu 26.04** (`ubuntu26`) і **Rocky Linux 10** (`rocky10`).
 
@@ -60,17 +60,15 @@ vagrant destroy -f ubuntu26
 ```
 .
 ├── build.ps1                     # Інтерактивна збірка box: init → validate → build → box add
-├── Vagrantfile                   # Читає config/machines/*.json, реєструє машини й ssh-config тригери
+├── Vagrantfile                   # Читає machines/*/machine.json, реєструє машини й ssh-config тригери
 │
-├── config/machines/              # Описи VM — головне місце для щоденних правок
-│   └── <os>.json
-│
-├── packer/                       # Шаблони збірки образів — каталог на кожну ОС
+├── machines/                     # Каталог на кожну ОС — усе про неї лежить разом
 │   ├── _skeleton/                # Заготовка для нової ОС
-│   └── <os>/<os>.pkr.hcl
-│
-├── http/                         # Файли автоінсталяції (Packer роздає їх по HTTP)
-│   └── <os>/                     # cloud-init autoinstall, kickstart, preseed
+│   └── <os>/
+│       ├── machine.json          # Опис VM — головне місце для щоденних правок
+│       ├── <os>.pkr.hcl          # Шаблон збірки образу
+│       └── http/                 # Файли автоінсталяції (Packer роздає їх по HTTP):
+│                                 # cloud-init autoinstall, kickstart, preseed
 │
 ├── ssh/                          # Ключова пара для доступу в гостьові ОС
 │   ├── private-key
@@ -85,11 +83,11 @@ vagrant destroy -f ubuntu26
 
 | Що змінюєте | Де | Чи потрібна перезбірка box |
 |---|---|---|
-| Ресурси, hostname, автостарт, експорт ssh-config | `config/machines/*.json` | Ні — досить `vagrant reload` |
-| Склад ПО, розмір диска, ISO | `packer/<os>/<os>.pkr.hcl` | Так |
-| Сценарій першої інсталяції ОС | `http/<os>/*` | Так |
+| Ресурси, hostname, автостарт, експорт ssh-config | `machines/<os>/machine.json` | Ні — досить `vagrant reload` |
+| Склад ПО, розмір диска, ISO | `machines/<os>/<os>.pkr.hcl` | Так |
+| Сценарій першої інсталяції ОС | `machines/<os>/http/*` | Так |
 
-Кожен шаблон `packer/<os>/<os>.pkr.hcl` поділений роздільником навпіл: угорі блок `locals` з усім, що відрізняється між ОС, унизу — механіка, однакова в усіх шаблонах. `box_name` і `hostname` шаблон бере з `config/machines/<os>.json`, тож ці значення не дублюються.
+Кожен шаблон `machines/<os>/<os>.pkr.hcl` поділений роздільником навпіл: угорі блок `locals` з усім, що відрізняється між ОС, унизу — механіка, однакова в усіх шаблонах. `box_name` і `hostname` шаблон бере з сусіднього `machine.json`, тож ці значення не дублюються.
 
 ---
 

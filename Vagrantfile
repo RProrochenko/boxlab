@@ -112,14 +112,14 @@ def custom_suffixes_for(base_name)
   end
 end
 
-machine_paths = Dir.glob(File.join(__dir__, "config", "machines", "*.json")).sort
-abort "config/machines: no VM configuration files found" if machine_paths.empty?
+machine_paths = Dir.glob(File.join(__dir__, "machines", "*", "machine.json")).sort
+abort "machines: no VM configuration files found" if machine_paths.empty?
 
 resolved = {}
 hostnames = []
 
 machine_paths.each do |path|
-  label = "config/machines/#{File.basename(path)}"
+  label = "machines/#{File.basename(File.dirname(path))}/machine.json"
   settings = read_json(path, label)
   unknown = settings.keys - %w[os name hostname guest communicator winrm cpus memory autostart primary synced_folder ssh_config_export ssh box]
   abort "#{label}: unknown settings: #{unknown.join(', ')}" unless unknown.empty?

@@ -2,22 +2,22 @@
 Push-Location -LiteralPath $PSScriptRoot
 
 try {
-    $packerDir = Join-Path $PSScriptRoot 'packer'
-
-    $machineFiles = @(Get-ChildItem -LiteralPath 'config/machines' -File -Filter '*.json' | Sort-Object Name)
-    if ($machineFiles.Count -eq 0) { throw 'Файли config/machines/*.json не знайдено.' }
-
-    $machines = foreach ($file in $machineFiles) {
-        $config = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+    # Каталог машини самодостатній: machine.json і шаблон Packer лежать поруч.
+    # Каталог без machine.json машиною не є (напр. _skeleton) — пропускаємо.
+    $machines = @(foreach ($dir in Get-ChildItem -LiteralPath 'machines' -Directory | Sort-Object Name) {
+        $jsonPath = Join-Path $dir.FullName 'machine.json'
+        if (-not (Test-Path -LiteralPath $jsonPath -PathType Leaf)) { continue }
+        $config = Get-Content -LiteralPath $jsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if (-not $config.os -or -not $config.name -or -not $config.box) {
-            throw "$($file.Name) має містити os, name і box."
+            throw "$($dir.Name)/machine.json має містити os, name і box."
         }
-        [pscustomobject]@{ File = $file; Config = $config }
-    }
+        [pscustomobject]@{ Dir = $dir; Config = $config }
+    })
+    if ($machines.Count -eq 0) { throw 'Файли machines/*/machine.json не знайдено.' }
 
     for ($i = 0; $i -lt $machines.Count; $i++) {
         $machine = $machines[$i]
-        Write-Host "$($i + 1). $($machine.Config.name) [$($machine.Config.os)] — $($machine.File.Name)"
+        Write-Host "$($i + 1). $($machine.Config.name) [$($machine.Config.os)] — machines/$($machine.Dir.Name)"
     }
     Write-Host '0. Вийти'
     do {
@@ -32,14 +32,11 @@ try {
     $machine = $machines[$choice - 1]
     $machineConfig = $machine.Config
 
-    $templateDir = Join-Path $packerDir $machineConfig.os
-    if (-not (Test-Path -LiteralPath $templateDir -PathType Container)) {
-        throw "Для OS-шаблону $($machineConfig.os) не знайдено каталог $templateDir."
-    }
+    $templateDir = $machine.Dir.FullName
 
     $box = $machineConfig.box.name
     if (-not $box -or $box -notmatch '^[a-zA-Z0-9][a-zA-Z0-9._-]*$') {
-        throw "Некоректне поле box.name у $($machine.File.Name)."
+        throw "Некоректне поле box.name у machines/$($machine.Dir.Name)/machine.json."
     }
 
     $boxFile = ".\builds\$box.box"

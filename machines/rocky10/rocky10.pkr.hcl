@@ -12,7 +12,7 @@ packer {
 
 locals {
   # --- Ідентифікація ---
-  os       = "ubuntu26"  # = назва цього каталогу, каталогу http/<os>/ і файлу config/machines/<os>.json
+  os       = "rocky10"  # = назва цього каталогу; machine.json і http/ лежать поруч
 
   # Користувач у гостьовій ОС: під цим іменем Packer створює обліковку й кладе
   # SSH-ключ, а Vagrant під ним підключається.
@@ -22,55 +22,56 @@ locals {
   # працює без явного вказування користувача: ssh-клієнт сам підставляє поточного
   # користувача хоста.
   #
-  # Значення має збігатися зі ssh.username у config/machines/<os>.json — інакше
+  # Значення має збігатися зі ssh.username у machine.json поруч — інакше
   # Packer покладе ключ одному користувачу, а Vagrant ходитиме під іншим.
   username = "user"
 
   # --- Образ ---
-  guest_os_type = "Ubuntu_64"               # тип гостьової ОС у VirtualBox
-  iso_url       = "https://releases.ubuntu.com/26.04.1/ubuntu-26.04.1-live-server-amd64.iso"
-  iso_checksum  = "sha256:cc8a95cde20f6ced61a322420de00f10cc3c90ced545daa46cb9c1a117f1d927"
+  guest_os_type = "RedHat_64"            # тип гостьової ОС у VirtualBox
+  iso_url       = "https://download.rockylinux.org/pub/rocky/10/isos/x86_64/Rocky-10.2-x86_64-minimal.iso"
+  iso_checksum  = "file:https://download.rockylinux.org/pub/rocky/10/isos/x86_64/Rocky-10.2-x86_64-minimal.iso.CHECKSUM"
 
   # --- Ресурси збірки ---
   cpus      = 4
   memory    = 8192
   disk_size = 30000
-  headless  = true                          # false — показувати вікно VirtualBox
+  headless  = true                      # false — показувати вікно VirtualBox
 
-  # --- Автоінсталяція (файл лежить у http/<os>/) ---
-  autoinstall_path = "/user-data"
-  autoinstall_file = "user-data.pkrtpl.hcl"
+  # --- Автоінсталяція (файл лежить у http/ поруч) ---
+  autoinstall_path = "/rocky.ks"
+  autoinstall_file = "rocky.ks.pkrtpl.hcl"
 
   # --- Послідовність клавіш у завантажувачі ---
   boot_command = [
-    "<esc><wait>",
-    "c<wait>",
-    "linux /casper/vmlinuz autoinstall ds=nocloud-net\\;s=http://{{ .HTTPIP }}:{{ .HTTPPort }}/ ---<enter><wait>",
-    "initrd /casper/initrd<enter><wait>",
-    "boot<enter>"
+    "e",
+    "<down><down><end><wait>",
+    " inst.ks=http://{{ .HTTPIP }}:{{ .HTTPPort }}/rocky.ks inst.text",
+    "<f10>"
   ]
 
   # --- Що доставити в образ ---
   provision = [
-    "sudo apt-get update",
+    "sudo dnf -y update",
 
     # Docker
-    "curl -fsSL https://get.docker.com -o /tmp/get-docker.sh",
-    "sudo sh /tmp/get-docker.sh",
-    "rm -f /tmp/get-docker.sh",
+    "sudo dnf -y install dnf-plugins-core",
+    "sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo",
+    "sudo dnf -y --best install docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-ce-rootless-extras docker-buildx-plugin",
+    "sudo systemctl enable docker",
     "sudo usermod -aG docker ${local.username}",
 
     # Базові пакети
-    "sudo apt-get install -y tree unzip virtualbox-guest-utils zip",
+    "sudo dnf -y install tree unzip zip",
 
-    "sudo apt-get clean"
+    "sudo dnf clean all"
   ]
 
   # --- Похідне, не чіпати ---
-  # box_name і hostname беруться з config/machines/<os>.json —
+  # box_name і hostname беруться з machine.json поруч —
   # щоб образ і Vagrant гарантовано мали однакові значення.
+  dir            = abspath(path.root)
   root           = abspath("${path.root}/../..")
-  cfg            = jsondecode(file("${local.root}/config/machines/${local.os}.json"))
+  cfg            = jsondecode(file("${local.dir}/machine.json"))
   box_name       = local.cfg.box.name
   hostname       = try(local.cfg.hostname, local.cfg.name)
   authorized_key = trimspace(file("${local.root}/ssh/private-key.pub"))
@@ -96,7 +97,7 @@ source "virtualbox-iso" "vm" {
 
   http_content = {
     "/meta-data" = ""
-    (local.autoinstall_path) = templatefile("${local.root}/http/${local.os}/${local.autoinstall_file}", {
+    (local.autoinstall_path) = templatefile("${local.dir}/http/${local.autoinstall_file}", {
       hostname       = local.hostname
       username       = local.username
       authorized_key = local.authorized_key

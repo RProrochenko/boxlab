@@ -7,23 +7,12 @@ packer {
 }
 
 # ═══════════════════════════════════════════════════════════════
-#  НАЛАШТУВАННЯ ОС — заповніть цей блок і більше нічого
-#
-#  Порядок дій:
-#    1. cp -r packer/_skeleton packer/<os>
-#    2. Перейменуйте _skeleton.pkr.hcl на <os>.pkr.hcl
-#    3. Створіть http/<os>/<файл автоінсталяції>
-#    4. Заповніть блок нижче
-#    5. Скопіюйте config/machines/*.json → config/machines/<os>.json
-#       і узгодьте в ньому os / name / hostname / box.name
-#    6. packer validate packer/<os>
+#  НАЛАШТУВАННЯ ОС — єдиний блок, який редагують
 # ═══════════════════════════════════════════════════════════════
 
 locals {
   # --- Ідентифікація ---
-  # os має збігатися з назвою цього каталогу, каталогу http/<os>/ і файлу
-  # config/machines/<os>.json — звідти шаблон сам візьме box.name і hostname.
-  os       = "TODO"  # напр. "debian13"
+  os       = "ubuntu26"  # = назва цього каталогу; machine.json і http/ лежать поруч
 
   # Користувач у гостьовій ОС: під цим іменем Packer створює обліковку й кладе
   # SSH-ключ, а Vagrant під ним підключається.
@@ -33,72 +22,56 @@ locals {
   # працює без явного вказування користувача: ssh-клієнт сам підставляє поточного
   # користувача хоста.
   #
-  # Значення має збігатися зі ssh.username у config/machines/<os>.json — інакше
+  # Значення має збігатися зі ssh.username у machine.json поруч — інакше
   # Packer покладе ключ одному користувачу, а Vagrant ходитиме під іншим.
   username = "user"
 
   # --- Образ ---
-  # guest_os_type: подивитися список можна командою `VBoxManage list ostypes`
-  guest_os_type = "TODO"  # напр. "Debian_64", "Ubuntu_64", "RedHat_64"
-  iso_url       = "TODO"
-  # Або пряма сума "sha256:...", або "file:https://.../CHECKSUM"
-  iso_checksum  = "TODO"
+  guest_os_type = "Ubuntu_64"               # тип гостьової ОС у VirtualBox
+  iso_url       = "https://releases.ubuntu.com/26.04.1/ubuntu-26.04.1-live-server-amd64.iso"
+  iso_checksum  = "sha256:cc8a95cde20f6ced61a322420de00f10cc3c90ced545daa46cb9c1a117f1d927"
 
   # --- Ресурси збірки ---
   cpus      = 4
   memory    = 8192
   disk_size = 30000
-  headless  = false  # для першої збірки лишіть false — буде видно вікно VirtualBox
+  headless  = true                          # false — показувати вікно VirtualBox
 
-  # --- Автоінсталяція (файл лежить у http/<os>/) ---
-  # Debian/Ubuntu: "/user-data" + cloud-init autoinstall
-  # RHEL/Rocky:    "/rocky.ks"  + kickstart
-  autoinstall_path = "TODO"
-  autoinstall_file = "TODO"
+  # --- Автоінсталяція (файл лежить у http/ поруч) ---
+  autoinstall_path = "/user-data"
+  autoinstall_file = "user-data.pkrtpl.hcl"
 
   # --- Послідовність клавіш у завантажувачі ---
-  # Найтонше місце. Візьміть за основу найближчу ОС:
-  #
-  #   Ubuntu (GRUB, редагування командного рядка через "c"):
-  #     "<esc><wait>", "c<wait>",
-  #     "linux /casper/vmlinuz autoinstall ds=nocloud-net\\;s=http://{{ .HTTPIP }}:{{ .HTTPPort }}/ ---<enter><wait>",
-  #     "initrd /casper/initrd<enter><wait>", "boot<enter>"
-  #
-  #   Rocky (GRUB, редагування пункту меню через "e" і запуск через F10):
-  #     "e", "<down><down><end><wait>",
-  #     " inst.ks=http://{{ .HTTPIP }}:{{ .HTTPPort }}/rocky.ks inst.text", "<f10>"
   boot_command = [
-    "TODO"
+    "<esc><wait>",
+    "c<wait>",
+    "linux /casper/vmlinuz autoinstall ds=nocloud-net\\;s=http://{{ .HTTPIP }}:{{ .HTTPPort }}/ ---<enter><wait>",
+    "initrd /casper/initrd<enter><wait>",
+    "boot<enter>"
   ]
 
   # --- Що доставити в образ ---
-  # Debian/Ubuntu:
-  #   "sudo apt-get update",
-  #   "curl -fsSL https://get.docker.com -o /tmp/get-docker.sh",
-  #   "sudo sh /tmp/get-docker.sh",
-  #   "rm -f /tmp/get-docker.sh",
-  #   "sudo usermod -aG docker ${local.username}",
-  #   "sudo apt-get install -y tree unzip zip",
-  #   "sudo apt-get clean"
-  #
-  # RHEL/Rocky:
-  #   "sudo dnf -y update",
-  #   "sudo dnf -y install dnf-plugins-core",
-  #   "sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo",
-  #   "sudo dnf -y --best install docker-ce docker-ce-cli containerd.io docker-compose-plugin",
-  #   "sudo systemctl enable docker",
-  #   "sudo usermod -aG docker ${local.username}",
-  #   "sudo dnf -y install tree unzip zip",
-  #   "sudo dnf clean all"
   provision = [
-    "TODO"
+    "sudo apt-get update",
+
+    # Docker
+    "curl -fsSL https://get.docker.com -o /tmp/get-docker.sh",
+    "sudo sh /tmp/get-docker.sh",
+    "rm -f /tmp/get-docker.sh",
+    "sudo usermod -aG docker ${local.username}",
+
+    # Базові пакети
+    "sudo apt-get install -y tree unzip virtualbox-guest-utils zip",
+
+    "sudo apt-get clean"
   ]
 
   # --- Похідне, не чіпати ---
-  # box_name і hostname беруться з config/machines/<os>.json —
+  # box_name і hostname беруться з machine.json поруч —
   # щоб образ і Vagrant гарантовано мали однакові значення.
+  dir            = abspath(path.root)
   root           = abspath("${path.root}/../..")
-  cfg            = jsondecode(file("${local.root}/config/machines/${local.os}.json"))
+  cfg            = jsondecode(file("${local.dir}/machine.json"))
   box_name       = local.cfg.box.name
   hostname       = try(local.cfg.hostname, local.cfg.name)
   authorized_key = trimspace(file("${local.root}/ssh/private-key.pub"))
@@ -124,7 +97,7 @@ source "virtualbox-iso" "vm" {
 
   http_content = {
     "/meta-data" = ""
-    (local.autoinstall_path) = templatefile("${local.root}/http/${local.os}/${local.autoinstall_file}", {
+    (local.autoinstall_path) = templatefile("${local.dir}/http/${local.autoinstall_file}", {
       hostname       = local.hostname
       username       = local.username
       authorized_key = local.authorized_key
