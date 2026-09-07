@@ -1,3 +1,11 @@
+![Packer](https://img.shields.io/badge/Packer-1.16.0-02A8EF?logo=packer&logoColor=white)
+![Vagrant](https://img.shields.io/badge/Vagrant-2-1868F2?logo=vagrant&logoColor=white)
+![VirtualBox](https://img.shields.io/badge/VirtualBox-provider-183A61?logo=virtualbox&logoColor=white)
+![Rocky Linux](https://img.shields.io/badge/Rocky_Linux-10-10B981?logo=rockylinux&logoColor=white)
+![Ubuntu](https://img.shields.io/badge/Ubuntu-26.04-E95420?logo=ubuntu&logoColor=white)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+
+
 # Локальна лабораторія віртуальних машин: Packer + Vagrant + VirtualBox
 
 Лабораторія для збірки й запуску віртуальних машин на власному Windows-хості: усе відтворюється з коду, тому машину можна вільно ламати, зносити й піднімати заново.
@@ -26,9 +34,10 @@
 
 ## Вимоги
 
-- **VirtualBox**
-- **Vagrant**
-- **Packer**
+- [VirtualBox](https://www.virtualbox.org/wiki/Downloads)
+- [Vagrant](https://developer.hashicorp.com/vagrant/downloads)
+- [Packer](https://developer.hashicorp.com/packer/install)
+
 
 `packer.exe` можна покласти в корінь проекту — `build.ps1` віддає перевагу саме йому, а якщо файлу немає, шукає `packer` у `PATH`.
 
