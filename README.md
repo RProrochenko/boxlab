@@ -7,145 +7,255 @@
 ![Ubuntu](https://img.shields.io/badge/Ubuntu-26.04-E95420?logo=ubuntu&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 
-Збірка базових Vagrant/VirtualBox боксів через Packer (Rocky Linux 10, Ubuntu 26.04) та їх подальший запуск як dev-машин через Vagrant.
+Відтворювані лабораторні віртуальні машини на VirtualBox. Packer збирає бокс з офіційного ISO, Vagrant піднімає з нього ізольовані ВМ.
+
+## Ідея
 
 Два незалежні етапи:
 
-1. **Packer** — збирає ISO в готовий `.box`-файл (`packer/` + `http/`).
-2. **Vagrant** — піднімає VM з уже готового боксу (`Vagrantfile` + `config/`).
+| Етап | Інструмент | Вхід | Вихід |
+| --- | --- | --- | --- |
+| 1. Збірка образу | Packer + VirtualBox | ISO ОС, `packer/<os>.pkr.hcl`, `http/<os>/*` | `builds/<box>.box` |
+| 2. Запуск машини | Vagrant + VirtualBox | `builds/<box>.box`, `config/machines/<name>.json` | працююча ВМ |
 
-Пов'язані вони лише іменами (назва боксу, ssh-ключ, hostname), не спільним кодом.
+Спільного коду між етапами немає. Зв'язок тримається на трьох іменах: назві боксу, шляху до SSH-ключа і назві ОС-шаблону. Образ можна перезбирати, не чіпаючи опис машин, і навпаки.
 
-## Зміст
+Один файл на ОС і один файл на машину. `Vagrantfile` і `build.ps1` не містять назв машин — вони читають свої теки динамічно, тому нова ОС не потребує правок коду.
 
-- [Вимоги](#вимоги)
-- [1. Клонування репозиторію](#1-клонування-репозиторію)
-- [2. SSH-ключ](#2-ssh-ключ)
-- [3. Збірка боксу (Packer)](#3-збірка-боксу-packer)
-- [4. Запуск VM (Vagrant)](#4-запуск-vm-vagrant)
-  - [Кастомна назва інстансу](#кастомна-назва-інстансу)
-- [Структура проекту](#структура-проекту)
-- [Створення нового образу з нуля](#створення-нового-образу-з-нуля)
-- [Відомі обмеження та рекомендації](#відомі-обмеження-та-рекомендації)
+```
+ISO (rockylinux.org / releases.ubuntu.com)
+        |
+        |  build.ps1  --  packer build: unattended install через kickstart / cloud-init (http/)
+        |            --  shell provisioner: update, Docker, пакети
+        |            --  vagrant box add: реєстрація в індексі боксів
+        v
+builds/<box>.box
+        |
+        |  vagrant up <name>            -->  ВМ за config/machines/<name>.json
+        |  vagrant up <name>-<суфікс>   -->  ще одна ізольована ВМ з того ж профілю
+        v
+```
 
 ## Вимоги
 
 - [VirtualBox](https://www.virtualbox.org/wiki/Downloads)
-- [Vagrant](https://developer.hashicorp.com/vagrant/downloads)
-- [Packer](https://developer.hashicorp.com/packer/install)
-  
+- [Vagrant](https://developer.hashicorp.com/vagrant/downloads) 2.x, перевірено на 2.4.9
+- [Packer](https://developer.hashicorp.com/packer/install) рівно 1.16.0 — версія зафіксована в `packer/plugins.pkr.hcl`
+- PowerShell потрібен лише для `build.ps1`; шаблони Packer і `Vagrantfile` платформо-незалежні
 
-## 1. Клонування репозиторію
+Плагіни (`virtualbox` 1.1.5, `vagrant` 1.1.7) ставить `packer init`. Якщо покласти `packer.exe` у корінь проекту, `build.ps1` візьме його замість `packer` з `PATH`.
+
+## Швидкий старт
 
 ```bash
 git clone https://github.com/RProrochenko/vagrant.git
 cd vagrant
 ```
 
-Нічого встановлювати чи ініціалізувати додатково не треба — весь потрібний код і шаблони вже в репозиторії.
-
-## 2. SSH-ключ
-
-У `ssh/private-key` (+ `.pub`) лежить спільний ключ, яким Packer вписує `authorized_keys` в образ під час зборки, а Vagrant потім заходить по SSH у вже готову VM. Він уже є в репозиторії — окремо нічого генерувати не треба, якщо влаштовує ключ за замовчуванням.
-
-Щоб замінити його на власний:
-
-```bash
-ssh-keygen -t ed25519 -f ssh/private-key -N ""
-```
-
-Це перезапише і `ssh/private-key`, і `ssh/private-key.pub` — новий публічний ключ підхопиться Packer-шаблонами автоматично (він читається з файлу, а не хардкодиться в `.hcl`). Якщо бокс уже зібраний зі старим ключем — перезбирати не обов'язково, доки Vagrant використовує саме `ssh/private-key`, що відповідає ключу, вписаному в конкретний бокс.
-
-## 3. Збірка боксу (Packer)
-
-Цей крок перетворює ISO-образ ОС на готовий `.box`-файл. Потрібен лише перед першим запуском конкретної ОС або коли хочеться пересобрати бокс (наприклад, після зміни списку пакетів у `packer/<os>.pkr.hcl`).
-
-Інтерактивно:
-
 ```powershell
 .\build.ps1
+vagrant up ubuntu26
+vagrant ssh ubuntu26
 ```
 
-Скрипт покаже список машин із `config/machines/*.json`, дасть обрати одну і сам виконає `packer init/validate/build -only=*.<os>` над текою `packer/`. Зборка триває довго (unattended-install ОС з нуля через kickstart/cloud-init) — очікуйте 10–20+ хвилин залежно від диска й мережі.
+`build.ps1` збирає бокс і сам реєструє його у Vagrant, тому між збіркою і запуском ручних кроків немає.
 
-Вручну (той самий процес крок за кроком):
+## Етап 1: збірка боксу (Packer)
+
+Потрібен перед першим запуском ОС і після зміни `packer/<os>.pkr.hcl` або `http/<os>/*`. Повне встановлення ОС з нуля займає 10-20+ хвилин.
+
+### build.ps1
+
+Скрипт читає всі `config/machines/*.json`, показує меню `назва [os] — файл.json`, і після вибору:
+
+1. перевіряє, що конфіг має `os`, `name`, `box`;
+2. перевіряє наявність `packer/<os>.pkr.hcl`;
+3. перевіряє `box.name` на допустимі символи;
+4. вибирає бінарник: локальний `packer.exe` або `packer` з `PATH`;
+5. виконує `packer init`, `packer validate -only=*.<os>`, `packer build -force -only=*.<os>`;
+6. перевіряє, що `builds/<box.name>.box` з'явився;
+7. реєструє бокс: `vagrant box add --name <box.name> <файл> --force`.
+
+`0` або порожній ввід — вихід. Помилка на будь-якому кроці зупиняє скрипт із текстом причини. `-force` в обох командах означає, що і файл боксу, і його запис в індексі Vagrant перезаписуються без запитань. Якщо `vagrant` не знайдено в `PATH`, скрипт повідомить готову команду для ручної реєстрації — зібраний бокс при цьому не втрачається.
+
+### Вручну
 
 ```powershell
 packer init packer
 packer validate -only="*.rocky10" packer
 packer build -only="*.rocky10" packer
+vagrant box add --name rocky-10-rpr-virtualbox .\builds\rocky-10-rpr-virtualbox.box --force
 ```
 
-Готовий `.box` з'явиться в `builds/` (назва береться з поля `box.name` відповідного `config/machines/<name>.json`).
+### Змінні шаблону
 
-## 4. Запуск VM (Vagrant)
+Оголошені з префіксом назви ОС, за замовчуванням `null`, підставляються через `coalesce`. Передаються через `-var` або `.pkrvars.hcl`.
 
-Коли бокс зібрано (лежить у `builds/`), піднімаємо VM по назві з `config/machines/*.json` (поле `name`, не назва ОС-шаблону):
+| Змінна | Призначення | За замовчуванням |
+| --- | --- | --- |
+| `<os>_build_cpus` | CPU на час збірки | 4 |
+| `<os>_build_memory` | RAM у МБ на час збірки | 8192 |
+| `<os>_vm_name` | назва тимчасової ВМ у VirtualBox | `rocky-10-base`, `ubuntu-26.04-base` |
+| `<os>_iso_url` | джерело ISO | офіційне дзеркало ОС |
+| `<os>_iso_checksum` | контрольна сума ISO | файл `CHECKSUM` для Rocky, `sha256:` для Ubuntu |
+| `<os>_build_output_directory` | тека проміжних файлів VirtualBox | `builds/packer-rocky`, `builds/packer-ubuntu` |
+| `<os>_box_output_path` | шлях готового боксу | `builds/<box_name>.box` |
+| `<os>_headless` | збірка без вікна | `false` для Rocky, `true` для Ubuntu |
 
-```bash
-vagrant up rocky10
-vagrant up ubuntu26
+```powershell
+packer build -only="*.ubuntu26" -var "ubuntu26_build_memory=4096" -var "ubuntu26_headless=false" packer
 ```
 
-Інші корисні команди:
+Решта параметрів — у `locals` того ж файлу: hostname, ім'я користувача, назва боксу, диск на 30 ГБ, `guest_os_type`, прапорець Docker, список пакетів.
+
+### Вміст образу
+
+Автовстановлення описане в `http/<os>/`: kickstart для Rocky, cloud-init autoinstall для Ubuntu. Packer роздає ці файли по HTTP, підставляючи hostname, ім'я користувача і публічний ключ. Ключ читається з `ssh/private-key.pub` функцією `file()`, тому в шаблонах не дублюється.
+
+Спільне для обох ОС:
+
+- локаль `en_US.UTF-8`, розкладка `us`, часовий пояс `Europe/Kyiv`
+- користувач `user` із sudo без пароля через `/etc/sudoers.d/user`, права `0440`
+- вхід лише по SSH-ключу: root заблокований у Rocky, парольна аутентифікація вимкнена в Ubuntu. Хеш пароля в шаблоні — запасний вхід через консоль VirtualBox
+- увімкнений sshd, автоматичне розбиття диска, Guest Additions вимкнені на рівні Packer
+
+Rocky 10: текстовий інсталятор, мінімальне середовище, firewall вимкнений для підключення Packer, SELinux enforcing, kdump і firstboot вимкнені, host-ключі через `ssh-keygen -A`.
+
+Ubuntu 26.04: пряме розбиття диска, sudoers-файл створюється в `late-commands` через `curtin` і перевіряється `visudo -c`.
+
+Shell-provisioner після встановлення:
+
+| ОС | Оновлення | Docker | Пакети |
+| --- | --- | --- | --- |
+| Rocky 10 | `dnf -y update` | репозиторій `docker-ce` з compose-, buildx- і rootless-плагінами, служба в автозапуску | `tree`, `unzip`, `zip` |
+| Ubuntu 26.04 | `apt-get update` | скрипт `get.docker.com` | `tree`, `unzip`, `virtualbox-guest-utils`, `zip` |
+
+Користувача додано в групу `docker`, кеш пакетного менеджера очищено. Прапорець `<os>_install_docker` вимикає встановлення Docker. Post-processor пакує результат у `builds/<box_name>.box`.
+
+## Етап 2: запуск машини (Vagrant)
+
+### Реєстрація боксу
+
+`Vagrantfile` посилається на бокс лише за іменем, без URL, тому Vagrant шукає його у власному індексі, а не в `builds/`. Реєстрацію робить `build.ps1` останнім кроком, і при перезбірці запис перезаписується разом із файлом. Ім'я в індексі завжди дорівнює `box.name` із профілю машини.
+
+Перевірити, що бокс на місці:
+
+```powershell
+vagrant box list
+```
+
+### Команди
+
+Машина адресується полем `name` зі свого профілю, а не назвою ОС-шаблону:
 
 ```bash
-vagrant ssh rocky10       # зайти в машину по SSH
+vagrant up rocky10        # створити й запустити
+vagrant ssh rocky10       # зайти по SSH
 vagrant halt rocky10      # вимкнути
-vagrant destroy rocky10   # видалити VM (бокс у builds/ лишається)
+vagrant destroy rocky10   # видалити ВМ, бокс лишається
 vagrant status            # стан усіх машин
 ```
 
+У VirtualBox ВМ отримує ім'я, що дорівнює назві машини Vagrant.
+
 ### Кастомна назва інстансу
 
-Vagrant не приймає довільний другий аргумент після назви машини — `vagrant up ubuntu26 name_test` означає підняти ДВІ окремі машини "ubuntu26" і "name_test", а не "ubuntu26 з іменем name_test".
-
-Замість цього `Vagrantfile` сам шукає серед аргументів поточної команди (`ARGV`) токен виду `<базова-назва>-<суфікс>` і на льоту реєструє окрему, повністю ізольовану машину з таким іменем на базі профілю `<базова-назва>`. Змінних середовища задавати не треба — достатньо вказати ім'я прямо в команді:
+Vagrant не приймає довільний другий аргумент: `vagrant up ubuntu26 name_test` означає «підняти дві машини». Тому `Vagrantfile` сканує аргументи команди і на кожен токен виду `<базова-назва>-<суфікс>` реєструє на льоту окрему ізольовану машину на базі профілю `<базова-назва>`:
 
 ```bash
-vagrant up ubuntu26-name_test
+vagrant up ubuntu26-DB
+vagrant up ubuntu26-DB ubuntu26-app rocky10-ci
 ```
 
-Працює однаково для `up`/`ssh`/`halt`/`destroy`/`status`. Кастомний інстанс ніколи не стає `primary` — цей статус лишається за базовою машиною.
+- суфікс починається з літери або цифри, далі літери, цифри, дефіс, підкреслення
+- hostname кастомної машини — це сам суфікс, підкреслення замінюється на дефіс: `ubuntu26-name_test` дає hostname `name-test`
+- інстанс успадковує бокс, ресурси та SSH-налаштування базового профілю, але ніколи не стає `primary`
+- працює однаково для `up`, `ssh`, `halt`, `destroy`, `status`
+
+## Профіль машини
+
+`Vagrantfile` читає всі файли з `config/machines/` за алфавітом. Невідоме поле, невірний тип, дублікат назви чи hostname — аварійне завершення з описом проблеми.
+
+| Поле | Обов'язкове | Опис і правила |
+| --- | --- | --- |
+| `os` | так | назва ОС-шаблону, тобто файлу `packer/<os>.pkr.hcl` |
+| `name` | так | назва машини для команд Vagrant, унікальна; літери, цифри, дефіс, підкреслення |
+| `box.name` | так | ім'я боксу в індексі Vagrant |
+| `box.resources.cpus`, `box.resources.memory` | ні | ресурси, зашиті в профіль боксу |
+| `hostname` | ні | 1-63 символи: літери, цифри, внутрішні дефіси; унікальний; типово дорівнює `name` |
+| `guest` | ні | тип гостя: `linux`, `ubuntu`, `windows` |
+| `communicator` | ні | `ssh` (типово) або `winrm` |
+| `ssh.username` | для ssh | користувач для підключення |
+| `ssh.private_key_path` | для ssh | шлях до приватного ключа відносно кореня проекту |
+| `ssh.public_key_path` | для ssh | валідується, але не використовується |
+| `ssh.insert_key` | ні | `false` — не підміняти ключ на власний згенерований |
+| `winrm` | лише для winrm | мапа налаштувань, застосовується тільки `username` |
+| `cpus` | ні | ядра для запуску ВМ, типово 2 |
+| `memory` | ні | RAM у МБ для запуску ВМ, типово 2048 |
+| `autostart` | ні | піднімати при `vagrant up` без аргументів, типово `false` |
+| `primary` | ні | машина за замовчуванням для команд без імені, типово `false`, така може бути лише одна |
+| `synced_folder` | ні | монтувати корінь проекту в `/vagrant`, типово `true` |
+
+Ресурси збираються в три шари, кожен перекриває попередній: значення за замовчуванням, `box.resources`, поля `cpus` і `memory` верхнього рівня.
+
+Решта перевірок: `cpus` і `memory` — цілі додатні; `autostart`, `primary`, `synced_folder` — тільки `true`/`false`; блок `ssh` і комунікатор `winrm` взаємовиключні; для гостя `windows` hostname обмежений 15 символами.
+
+| Профіль | ОС-шаблон | hostname | CPU / RAM | Бокс |
+| --- | --- | --- | --- | --- |
+| `config/machines/rocky10.json` | `rocky10` | `rocky-dev` | 2 / 4096 | `rocky-10-rpr-virtualbox` |
+| `config/machines/ubuntu26.json` | `ubuntu26` | `ubuntu-dev` | 4 / 8192 | `ubuntu-26.04-rpr-virtualbox` |
+
+## SSH-ключ
+
+`ssh/private-key` і `.pub` — спільна пара: Packer вписує публічну частину в образ, Vagrant заходить приватною в готову ВМ. Ключ уже в репозиторії.
+
+```bash
+ssh-keygen -t ed25519 -f ssh/private-key -N ""
+```
+
+Packer підхопить новий публічний ключ автоматично. Вже зібрані бокси про заміну не знають — для входу в них потрібен ключ, який був на момент збірки.
 
 ## Структура проекту
 
 ```
 vagrant/
-├── Vagrantfile              # запуск VM: читає config/machines
-├── build.ps1                # інтерактивна збірка боксу через Packer
-├── packer.exe                # Packer 1.16.0 (Windows), опційно, git-ignored
-├── packer/                   # усі Packer-файли в одному місці
-│   ├── plugins.pkr.hcl       #   версії Packer core + плагінів
-│   ├── rocky10.pkr.hcl       #   повний build Rocky 10 (vars, source, provision)
+├── Vagrantfile               # запуск ВМ: читає профілі, валідує, реєструє машини
+├── build.ps1                 # інтерактивна збірка боксу через Packer
+├── packer.exe                # опційний локальний Packer 1.16.0 (git-ignored)
+├── packer/
+│   ├── plugins.pkr.hcl       #   пін версій Packer core і плагінів
+│   ├── rocky10.pkr.hcl       #   повний build Rocky 10
 │   └── ubuntu26.pkr.hcl      #   повний build Ubuntu 26.04
-├── http/                      # kickstart / cloud-init для unattended-install
+├── http/                     # шаблони автовстановлення, роздаються Packer по HTTP
 │   ├── rocky10/rocky.ks.pkrtpl.hcl
 │   └── ubuntu26/user-data.pkrtpl.hcl
-├── config/
-│   └── machines/               # усе, що читає Vagrantfile — один файл на машину
-│       ├── rocky10.json        #   guest, communicator, hostname, ресурси, ssh, box...
-│       └── ubuntu26.json
-├── ssh/private-key(.pub)      # спільний ssh-ключ для Packer і Vagrant
-├── builds/                    # готові .box-файли (git-ignored)
-└── packer_cache/              # кеш ISO (git-ignored)
+├── config/machines/          # опис машин для Vagrant, один файл на машину
+│   ├── rocky10.json
+│   └── ubuntu26.json
+├── ssh/private-key(.pub)     # спільний ключ для Packer і Vagrant
+├── builds/                   # готові бокси і проміжні файли VirtualBox (git-ignored)
+└── packer_cache/             # кеш ISO (git-ignored)
 ```
 
-`config/machines/<name>.json` описує все, що потрібно `Vagrantfile` для одного інстансу: і незмінні для ОС параметри (`guest`, `communicator`), і параметри конкретного розгортання (hostname, ресурси, ssh, назва боксу, `primary`, `synced_folder`...). Поле `os` вказує на однойменний Packer-шаблон у `packer/<os>.pkr.hcl`, за яким `build.ps1` збирає бокс — це єдиний зв'язок між двома етапами.
+`.gitattributes` фіксує переводи рядків: LF для `Vagrantfile`, JSON, HCL, YAML і публічного ключа, CRLF для PowerShell, бінарний режим для приватного ключа. Kickstart і cloud-init читає Linux-інсталятор, `build.ps1` — Windows-оболонка.
 
-## Створення нового образу з нуля
+## Додати нову ОС
 
-Повний шлях для нової ОС, якої ще немає в проєкті:
+1. `http/<os>/*.pkrtpl.hcl` — шаблон автовстановлення. Мінімум: hostname, користувач із sudo без пароля, публічний ключ у `authorized_keys`, увімкнений sshd.
+2. `packer/<os>.pkr.hcl` — змінні з префіксом назви ОС, `locals` із коренем проекту, джерело `virtualbox-iso` з `boot_command` під інсталятор цієї ОС, `http_content` через `templatefile`, приватний ключ із `ssh/`, shell-provisioner, post-processor у `builds/<box>.box`.
+3. `config/machines/<name>.json` — поле `os` із кроку 2 і `box.name`, що збігається з post-processor.
+4. `.\build.ps1` — нова машина сама з'явиться в меню, бокс зареєструється, далі `vagrant up <name>`.
 
-1. **Kickstart / cloud-init шаблон.** Додати `http/<os>/*.pkrtpl.hcl` — файл автоматичного встановлення ОС (аналогічно `http/rocky10/rocky.ks.pkrtpl.hcl` для kickstart або `http/ubuntu26/user-data.pkrtpl.hcl` для cloud-init). Мінімум: hostname, користувач (`${username}`) з sudo без пароля, встановлення `${authorized_key}` в `authorized_keys`, увімкнений sshd.
-2. **Packer-шаблон.** Додати `packer/<os>.pkr.hcl` за зразком наявних: джерело `virtualbox-iso`, `iso_url`/`iso_checksum` (з можливістю перевизначити через `-var`), `http_content` з підстановкою kickstart/cloud-init шаблону, `ssh_private_key_file` на `ssh/private-key`, `provisioner "shell"` для встановлення пакетів, `post-processor "vagrant"` з виводом у `builds/<box-name>.box`.
-3. **Зборка боксу.** `packer init packer && packer validate -only="*.<os>" packer && packer build -only="*.<os>" packer` (або через `.\build.ps1`, коли з'явиться відповідний `config/machines/<name>.json`).
-4. **Машина для Vagrant.** Додати `config/machines/<name>.json` з полями `os` (= назва Packer-шаблону з кроку 2), `name`, `hostname`, `guest`, `communicator`, `box.name` (той самий, що в `post-processor "vagrant"` кроку 2) + опційно `winrm`/`cpus`/`memory`/`autostart`/`primary`/`synced_folder`/`ssh`/`box.resources`.
-5. **Запуск.** `Vagrantfile` підхопить новий файл автоматично — правок коду не потрібно. `vagrant up <name>`.
+## Відомі обмеження
 
-## Відомі обмеження та рекомендації
+- **Ручна збірка Packer'ом не реєструє бокс.** `build.ps1` це робить, а прямий `packer build` — ні, тому після нього потрібен `vagrant box add`. Інакше `vagrant up` шукатиме бокс у Vagrant Cloud і впаде.
+- **Приватний ключ у git.** Прийнятно для ізольованих локальних машин. Перед публікацією репозиторію ключ варто ротувати і надалі тримати поза git, лишивши тільки публічну частину.
+- **`ssh.public_key_path` нічого не робить.** Поле валідується, але `Vagrantfile` його не застосовує: публічний ключ потрібен лише Packer'у.
+- **Версія боксу не фіксується.** Профіль не приймає такого поля, тому Vagrant бере єдину зареєстровану версію.
+- **WinRM реалізований частково.** Валідація й вибір комунікатора є, застосовується тільки ім'я користувача, Windows-шаблону в проекті немає.
+- **hostname задається у двох місцях.** Образ отримує його з Packer-шаблону, запущена ВМ — зі свого профілю, і друге перекриває перше на кожному завантаженні.
+- **`primary` і `synced_folder` вимкнені в обох профілях.** `vagrant up` без аргументів не підніме нічого, тека `/vagrant` не змонтована.
 
-- **Приватний SSH-ключ у git.** `ssh/private-key` закомічений у репозиторій — це спільний ключ для Packer (вписується в образ) і Vagrant (яким піднімається VM). Прийнятно для ізольованих локальних dev-боксів, але перед тим як робити репозиторій публічним або використовувати ключ десь ще — варто його ротувати (див. [крок 2](#2-ssh-ключ)) і надалі тримати поза git (лишити в репо тільки `.pub`).
-- **`ssh.public_key_path` нічого не робить.** Поле валідується (`config/machines/*.json`), але `Vagrantfile` ніде не застосовує його значення — публічний ключ реально потрібен лише Packer'у при зборці образу, а не Vagrant'у при запуску вже готового бокса.
-- **Фіксований пароль користувача.** Kickstart і cloud-init шаблони використовують той самий захардкоджений хеш пароля для `user` — вхід передбачений лише по SSH-ключу (`allow-pw: false` / `rootpw --lock`), пароль потрібен тільки як fallback для консолі VirtualBox.
-- **`primary` / `synced_folder` наразі вимкнені в обох машинах** (`config/machines/*.json`) — жодна VM не є Vagrant'івською "primary" за замовчуванням, і синхронізація поточної теки в `/vagrant` вимкнена для обох. Якщо потрібна робоча тека всередині VM або команди без явної назви машини (`vagrant up` без аргументів) — увімкніть відповідні поля в потрібному `config/machines/<name>.json`.
+## Ліцензія
+
+[MIT](LICENSE)

@@ -111,9 +111,9 @@ machine_paths.each do |path|
     custom_name = "#{base_name}-#{suffix}"
     abort "Duplicate machine name: #{custom_name}" if resolved.key?(custom_name)
 
-    # Hostname (на відміну від імені машини Vagrant) не може містити "_" за DNS-правилами,
-    # тому підкреслення в суфіксі при формуванні hostname замінюються на "-".
-    custom_hostname = "#{hostname}-#{suffix.tr('_', '-')}"
+    # Hostname кастомного інстансу — це сам суфікс (а не базовий hostname + суфікс).
+    # "_" у ньому не дозволений за DNS-правилами, тому замінюється на "-".
+    custom_hostname = suffix.tr('_', '-')
     unless custom_hostname.match?(/\A[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\z/)
       abort "#{custom_name}: hostname must be 1-63 letters, digits or internal hyphens"
     end
@@ -151,6 +151,7 @@ Vagrant.configure("2") do |config|
       end
 
       vm.vm.provider "virtualbox" do |vb|
+        vb.name = name
         vb.memory = options["memory"]
         vb.cpus = options["cpus"]
       end

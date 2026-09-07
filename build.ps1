@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 Push-Location -LiteralPath $PSScriptRoot
 
 try {
@@ -55,6 +55,18 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Packer build failed' }
     if (-not (Test-Path -LiteralPath $boxFile -PathType Leaf)) { throw "Box not found: $boxFile" }
 
+    # Vagrant шукає бокс за іменем у власному індексі, а не в builds/ —
+    # без цієї реєстрації `vagrant up` пішов би шукати бокс у Vagrant Cloud.
+    $vagrant = Get-Command vagrant -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $vagrant) {
+        throw "Бокс зібрано ($boxFile), але vagrant не знайдено в PATH — зареєструйте вручну: vagrant box add --name $box $boxFile --force"
+    }
+
+    & $vagrant.Source box add --name $box $boxFile --force
+    if ($LASTEXITCODE -ne 0) { throw 'Vagrant box add failed' }
+
+    Write-Host "Бокс $box зареєстровано. Запуск: vagrant up $($machineConfig.name)"
 }
 finally {
     Pop-Location
