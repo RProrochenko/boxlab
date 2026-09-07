@@ -32,8 +32,8 @@
 
 - [VirtualBox](https://www.virtualbox.org/wiki/Downloads)
 - [Vagrant](https://developer.hashicorp.com/vagrant/downloads)
-- [Packer](https://developer.hashicorp.com/packer/install) `1.16.0`
-
+- [Packer](https://developer.hashicorp.com/packer/install)
+  
 
 ## 1. Клонування репозиторію
 
