@@ -32,6 +32,7 @@ try {
     $machine = $machines[$choice - 1]
     $machineConfig = $machine.Config
 
+    # ЗМІНЕНО: шаблон тепер не файл packer/<os>.pkr.hcl, а окремий каталог packer/<os>/
     $templateDir = Join-Path $packerDir $machineConfig.os
     if (-not (Test-Path -LiteralPath $templateDir -PathType Container)) {
         throw "Для OS-шаблону $($machineConfig.os) не знайдено каталог $templateDir."
@@ -46,6 +47,7 @@ try {
     $packerExe = Join-Path $PSScriptRoot 'packer.exe'
     $packer = if (Test-Path $packerExe) { $packerExe } else { 'packer' }
 
+    # ЗМІНЕНО: $source і -only більше не потрібні — у каталозі рівно один source.
     & $packer init $templateDir
     if ($LASTEXITCODE -ne 0) { throw 'Packer init failed' }
 
