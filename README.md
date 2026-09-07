@@ -5,6 +5,7 @@
 ![Ubuntu](https://img.shields.io/badge/Ubuntu-26.04-E95420?logo=ubuntu&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 
+---
 
 # Локальна лабораторія віртуальних машин: Packer + Vagrant + VirtualBox
 
