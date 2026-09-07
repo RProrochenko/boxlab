@@ -1,4 +1,92 @@
 require "json"
+require "fileutils"
+
+# --- Паралельний up для VirtualBox ---
+# Vagrant умів це завжди: у команди `up` --parallel навіть типово увімкнений.
+# Але batch_action відкочується на послідовний режим, якщо провайдер сам не
+# оголосив підтримку паралелізму — з вбудованих це робить тільки docker,
+# VirtualBox ні. Прапорець лежить в options-хеші, який провайдер зареєстрував
+# у плагін-менеджері, тож перевизначаємо його тут, до Vagrant.configure.
+#
+# Типово увімкнено. Вимкнути:
+#   vagrant up --no-parallel ...   на одну команду (штатний прапорець Vagrant)
+#   VB_PARALLEL=0                  для всіх команд у сесії
+#
+# `vagrant destroy` лишається послідовним: у нього власний типовий режим
+# без паралелізму, і вмикається він лише явним --parallel.
+unless ENV["VB_PARALLEL"].to_s.match?(/\A(0|false|no|off)\z/i)
+  Vagrant.plugin("2").manager.providers[:virtualbox][1][:parallel] = true
+end
+
+# --- Експорт ssh-config для IDE (VS Code Remote-SSH, JetBrains тощо) ---
+# Після up/reload/resume кожна машина записує власний файл
+# ~/.ssh/config.d/vagrant-<ім'я-машини>, а після destroy — видаляє його.
+# Головний ~/.ssh/config має підхоплювати їх рядком "Include config.d/*".
+SSH_CONFIG_HOME   = File.expand_path(File.join("~", ".ssh"))
+SSH_CONFIG_DIR    = File.join(SSH_CONFIG_HOME, "config.d")
+SSH_CONFIG_PREFIX = "vagrant-".freeze
+
+def ssh_config_entry_path(machine_name)
+  File.join(SSH_CONFIG_DIR, "#{SSH_CONFIG_PREFIX}#{machine_name}")
+end
+
+# Windows-збірка OpenSSH не розуміє "/dev/null".
+def ssh_null_device
+  Vagrant::Util::Platform.windows? ? "NUL" : "/dev/null"
+end
+
+# У ssh_config шлях завжди через "/", інакше Windows-бекслеші читаються як escape.
+def ssh_config_quote(path)
+  %("#{path.to_s.gsub(File::ALT_SEPARATOR || File::SEPARATOR, '/')}")
+end
+
+def warn_missing_ssh_include(ui)
+  main_config = File.join(SSH_CONFIG_HOME, "config")
+  return if File.exist?(main_config) && File.read(main_config).match?(/^\s*Include\s+.*config\.d/i)
+
+  ui.warn("ssh-config: додайте рядок \"Include config.d/*\" на початок #{main_config}, " \
+          "інакше IDE не побачить згенеровані записи")
+end
+
+def write_ssh_config_entry(machine)
+  info = machine.ssh_info
+  if info.nil?
+    machine.ui.warn("ssh-config: дані SSH ще недоступні — запис пропущено")
+    return
+  end
+
+  keys = Array(info[:private_key_path])
+  lines = ["# Згенеровано Vagrant-тригером. Правки будуть перезаписані.",
+           "Host #{machine.name}",
+           "  HostName #{info[:host]}",
+           "  Port #{info[:port]}",
+           "  User #{info[:username]}"]
+  keys.each { |key| lines << "  IdentityFile #{ssh_config_quote(key)}" }
+  lines << "  IdentitiesOnly yes" unless keys.empty?
+  lines << "  ForwardAgent #{info[:forward_agent] ? 'yes' : 'no'}"
+  # VM перестворюються на тих самих портах, тому known_hosts тільки шкодить.
+  lines << "  StrictHostKeyChecking no"
+  lines << "  UserKnownHostsFile #{ssh_null_device}"
+  lines << "  LogLevel ERROR"
+
+  path = ssh_config_entry_path(machine.name)
+  FileUtils.mkdir_p(SSH_CONFIG_DIR)
+  File.write(path, lines.join("\n") + "\n")
+  machine.ui.info("ssh-config: #{path} → ssh #{machine.name}")
+  warn_missing_ssh_include(machine.ui)
+rescue SystemCallError => error
+  machine.ui.warn("ssh-config: не вдалося записати запис: #{error.message}")
+end
+
+def remove_ssh_config_entry(machine)
+  path = ssh_config_entry_path(machine.name)
+  return unless File.exist?(path)
+
+  File.delete(path)
+  machine.ui.info("ssh-config: видалено #{path}")
+rescue SystemCallError => error
+  machine.ui.warn("ssh-config: не вдалося видалити #{path}: #{error.message}")
+end
 
 def read_json(path, label)
   config = JSON.parse(File.read(path))
@@ -33,7 +121,7 @@ hostnames = []
 machine_paths.each do |path|
   label = "config/machines/#{File.basename(path)}"
   settings = read_json(path, label)
-  unknown = settings.keys - %w[os name hostname guest communicator winrm cpus memory autostart primary synced_folder ssh box]
+  unknown = settings.keys - %w[os name hostname guest communicator winrm cpus memory autostart primary synced_folder ssh_config_export ssh box]
   abort "#{label}: unknown settings: #{unknown.join(', ')}" unless unknown.empty?
 
   os_name = settings["os"]
@@ -64,13 +152,13 @@ machine_paths.each do |path|
   unless box_resources.is_a?(Hash) && (box_resources.keys - %w[cpus memory]).empty?
     abort "#{base_name}: resources may contain only cpus and memory"
   end
-  options = { "cpus" => 2, "memory" => 2048, "autostart" => false,
+  options = { "cpus" => 2, "memory" => 2048, "autostart" => false, "ssh_config_export" => true,
               "primary" => false, "synced_folder" => true }
-            .merge(box_resources).merge(settings.slice("cpus", "memory", "autostart", "primary", "synced_folder"))
+            .merge(box_resources).merge(settings.slice("cpus", "memory", "autostart", "primary", "synced_folder", "ssh_config_export"))
   %w[cpus memory].each do |key|
     abort "#{base_name}: #{key} must be a positive integer" unless options[key].is_a?(Integer) && options[key].positive?
   end
-  %w[autostart primary synced_folder].each do |key|
+  %w[autostart primary synced_folder ssh_config_export].each do |key|
     abort "#{base_name}: #{key} must be true or false" unless [true, false].include?(options[key])
   end
 
@@ -148,6 +236,20 @@ Vagrant.configure("2") do |config|
         vm.ssh.private_key_path = File.expand_path(ssh["private_key_path"], __dir__) if ssh.key?("private_key_path")
       elsif profile.fetch("winrm", {}).key?("username")
         vm.winrm.username = profile["winrm"]["username"]
+      end
+
+      # --- Тригери: тримати ~/.ssh/config.d/vagrant-<name> в актуальному стані ---
+      if communicator == "ssh" && options["ssh_config_export"]
+        vm.trigger.after [:up, :reload, :resume] do |t|
+          t.name = "Update SSH config for VS Code"
+          t.ruby { |_env, machine| write_ssh_config_entry(machine) }
+        end
+
+        vm.trigger.after :destroy do |t|
+          t.name = "Remove SSH config for VS Code"
+          # destroy без підтвердження скасовується — тоді машина ще жива, запис лишаємо.
+          t.ruby { |_env, machine| remove_ssh_config_entry(machine) if machine.state.id == :not_created }
+        end
       end
 
       vm.vm.provider "virtualbox" do |vb|
