@@ -13,9 +13,7 @@
 - [VirtualBox](https://www.virtualbox.org/wiki/Downloads)
 - [Vagrant](https://developer.hashicorp.com/vagrant/downloads) 2.x, перевірено на 2.4.9
 - [Packer](https://developer.hashicorp.com/packer/install) рівно 1.16.0 — версія зафіксована в `packer/plugins.pkr.hcl`
-- PowerShell потрібен лише для `build.ps1`; шаблони Packer і `Vagrantfile` платформо-незалежні
 
-Плагіни (`virtualbox` 1.1.5, `vagrant` 1.1.7) ставить `packer init`. Якщо покласти `packer.exe` у корінь проекту, `build.ps1` візьме його замість `packer` з `PATH`.
 
 ## Швидкий старт
 
