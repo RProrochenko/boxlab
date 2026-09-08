@@ -22,9 +22,10 @@
 
 ## Вимоги
 
-- [VirtualBox](https://www.virtualbox.org/wiki/Downloads)
-- [Vagrant](https://developer.hashicorp.com/vagrant/downloads)
-- [Packer](https://developer.hashicorp.com/packer/install)
+- [Oracle VirtualBox](https://www.virtualbox.org/wiki/Downloads)
+- [HashiCorp Packer](https://developer.hashicorp.com/vagrant/downloads)
+- [HashiCorp Vagrant](https://developer.hashicorp.com/packer/install)
+
 
 Виконуваний файл Packer можна покласти в корінь проєкту — `build.ps1` віддає перевагу саме йому, інакше шукає `packer` у `PATH`.
 
