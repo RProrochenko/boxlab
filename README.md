@@ -22,6 +22,8 @@
 
 ## Вимоги
 
+**Хост:** Windows 11 x64. Інші системи не тестувалися.
+
 - [Oracle VirtualBox](https://www.virtualbox.org/wiki/Downloads)
 - [HashiCorp Packer](https://developer.hashicorp.com/packer/install)
 - [HashiCorp Vagrant](https://developer.hashicorp.com/vagrant/downloads)
